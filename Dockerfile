@@ -42,13 +42,22 @@ RUN chown -R mluser:mluser /home/mluser/.local
 
 COPY --chown=mluser:mluser . .
 
+# Asegurar permisos correctos para mluser
+RUN chmod -R 755 /app && \
+    mkdir -p /app/trained_models /app/logs /app/__pycache__ && \
+    chmod -R 777 /app/trained_models /app/logs && \
+    chown -R mluser:mluser /app /home/mluser && \
+    chmod -R u+rwx /home/mluser && \
+    chmod -R g+rx /app && \
+    chmod -R o+rx /app
+
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-8002}/health || exit 1
+    CMD curl -f http://localhost:8080/health || exit 1
 
 USER mluser
 
-EXPOSE 8002 8080
+EXPOSE 8080
 
-# Entry point: uvicorn con puerto dinámico de Railway
-CMD ["sh", "-c", "uvicorn api_unsupervised_server:app --host 0.0.0.0 --port ${PORT:-8002}"]
+# Entry point: uvicorn en puerto 8080 para Railway
+CMD sh -c 'uvicorn api_unsupervised_server:app --host 0.0.0.0 --port 8080'

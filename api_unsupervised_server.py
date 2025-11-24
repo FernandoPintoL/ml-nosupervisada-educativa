@@ -22,11 +22,10 @@ from dotenv import load_dotenv
 # Cargar variables de entorno
 load_dotenv()
 
-# Agregar ml_educativas al path
-current_file = os.path.abspath(__file__)
-ml_educativas_dir = os.path.dirname(current_file)
-if ml_educativas_dir not in sys.path:
-    sys.path.insert(0, ml_educativas_dir)
+# Agregar directorio actual (no_supervisado) al path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
 # ============================================================
 # CAPA 1: DATA LAYER
