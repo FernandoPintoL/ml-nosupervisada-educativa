@@ -124,7 +124,7 @@ class UnsupervisedDataLoader:
 # CAPA 2: MODEL LAYER
 # ============================================================
 
-from no_supervisado.models.kmeans_segmenter import KMeansSegmenter
+from models.kmeans_segmenter import KMeansSegmenter
 
 
 class UnsupervisedModelManager:
