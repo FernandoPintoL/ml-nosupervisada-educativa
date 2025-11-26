@@ -525,10 +525,11 @@ async def batch_cluster_students(background_tasks: BackgroundTasks, limit: Optio
 
 if __name__ == "__main__":
     import uvicorn
+    port = int(os.getenv('PORT', 8002))  # Railway: $PORT=8080, Local: 8002
     uvicorn.run(
         "api_unsupervised_server:app",
         host="0.0.0.0",
-        port=8002,
+        port=port,
         reload=DEBUG,
         log_level=LOG_LEVEL.lower()
     )
