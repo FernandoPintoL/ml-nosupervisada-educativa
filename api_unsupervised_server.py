@@ -250,6 +250,36 @@ class HealthCheckResponse(BaseModel):
     timestamp: str
 
 
+# ============================================================
+# VOCATIONAL SCHEMAS
+# ============================================================
+
+class VocationalFeaturesRequest(BaseModel):
+    """Features para clustering vocacional"""
+    student_id: int
+    promedio: float  # 0-100
+    asistencia: float  # 0-100
+    tasa_entrega: float  # 0-1
+    tendencia_score: float  # 0-1
+    recencia_score: float  # 0-1
+    area_dominante: float  # 0-100
+    num_areas_fuertes: int  # 0-6
+
+
+class VocationalClusteringResponse(BaseModel):
+    """Response de clustering vocacional"""
+    student_id: int
+    cluster_id: int
+    cluster_nombre: str
+    cluster_descripcion: str
+    probabilidad: float
+    perfil: Dict[str, Any]
+    recomendaciones: List[str]
+    modelo_version: str
+    tiempo_procesamiento_ms: float
+    timestamp: str
+
+
 # Crear aplicación FastAPI
 app = FastAPI(
     title="Plataforma Educativa - Unsupervised ML API",
@@ -334,6 +364,7 @@ async def root():
             'health': '/health',
             'clustering': '/clustering/predict',
             'clustering_analysis': '/clustering/analysis',
+            'cluster_vocational': '/cluster/vocational',
             'docs': '/docs',
             'redoc': '/redoc',
         }
@@ -411,6 +442,139 @@ async def analyze_clustering(request: ClusteringRequest):
         raise
     except Exception as e:
         logger.error(f"Error en analyze_clustering: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/cluster/vocational", response_model=VocationalClusteringResponse)
+async def cluster_vocational(features: VocationalFeaturesRequest):
+    """
+    Clustering vocacional para estudiantes basado en test vocacional
+
+    Utiliza K-Means clustering para agrupar estudiantes en clusters de aptitudes
+    Retorna cluster asignado, perfil y recomendaciones personalizadas
+
+    Clusters:
+    - Cluster 0: Bajo Desempeño (40-60% promedio)
+    - Cluster 1: Desempeño Medio (60-80% promedio)
+    - Cluster 2: Alto Desempeño (80-100% promedio)
+    """
+    import time
+    start_time = time.time()
+
+    logger.info(f"Clustering vocacional solicitado para estudiante {features.student_id}")
+
+    if 'kmeans' not in model_manager.models:
+        raise HTTPException(status_code=503, detail="K-Means model not loaded")
+
+    try:
+        # Convertir features vocacionales a formato esperado por K-Means
+        # Crear vector de features: [promedio, asistencia, tasa_entrega, tendencia_score, recencia_score, area_dominante, num_areas_fuertes]
+        X = np.array([[
+            features.promedio / 100.0,  # Normalizar a 0-1
+            features.asistencia / 100.0,  # Normalizar a 0-1
+            features.tasa_entrega,  # Ya está en 0-1
+            features.tendencia_score,  # Ya está en 0-1
+            features.recencia_score,  # Ya está en 0-1
+            features.area_dominante / 100.0,  # Normalizar a 0-1
+            features.num_areas_fuertes / 6.0,  # Normalizar a 0-1
+        ]])
+
+        # Ejecutar clustering
+        segmenter = model_manager.models['kmeans']
+        cluster_label = segmenter.predict(X)[0]
+
+        # Definir perfiles de clusters
+        cluster_profiles = {
+            0: {
+                "id": 0,
+                "nombre": "Bajo Desempeño",
+                "descripcion": "Estudiantes con desempeño académico bajo (40-60%)",
+                "caracteristicas": [
+                    "Promedio académico entre 40-60",
+                    "Asistencia variable",
+                    "Necesidad de apoyo académico"
+                ],
+                "recomendaciones": [
+                    "Programa de tutorías intensivas",
+                    "Seguimiento personalizado",
+                    "Apoyo en estrategias de estudio"
+                ]
+            },
+            1: {
+                "id": 1,
+                "nombre": "Desempeño Medio",
+                "descripcion": "Estudiantes con desempeño académico medio (60-80%)",
+                "caracteristicas": [
+                    "Promedio académico entre 60-80",
+                    "Buena asistencia general",
+                    "Potencial de mejora"
+                ],
+                "recomendaciones": [
+                    "Programas de enriquecimiento",
+                    "Desarrollo de habilidades avanzadas",
+                    "Mentoría académica"
+                ]
+            },
+            2: {
+                "id": 2,
+                "nombre": "Alto Desempeño",
+                "descripcion": "Estudiantes con desempeño académico alto (80-100%)",
+                "caracteristicas": [
+                    "Promedio académico entre 80-100",
+                    "Excelente asistencia",
+                    "Aptitudes excepcionales"
+                ],
+                "recomendaciones": [
+                    "Programas de liderazgo",
+                    "Investigación avanzada",
+                    "Oportunidades de mentoría"
+                ]
+            }
+        }
+
+        # Obtener perfil del cluster
+        cluster_profile = cluster_profiles.get(int(cluster_label), cluster_profiles[1])
+
+        # Calcular probabilidad basada en distancia al centroide
+        distances = segmenter.model.transform(X)[0]  # Distancia a cada centroide
+        min_distance = np.min(distances)
+        max_distance = np.max(distances)
+
+        # Normalizar distancia a probabilidad (0-1)
+        distance_to_cluster = distances[cluster_label]
+        probabilidad = 1 - (distance_to_cluster / (max_distance + 1e-10))
+        probabilidad = max(0.0, min(1.0, probabilidad))
+
+        # Recomendaciones personalizadas basadas en el cluster y features
+        recomendaciones = cluster_profile["recomendaciones"].copy()
+
+        # Agregar recomendaciones personalizadas
+        if features.promedio < 60:
+            recomendaciones.append("Considere buscar apoyo académico especializado")
+        if features.asistencia < 70:
+            recomendaciones.append("Mejorar la asistencia a clase es fundamental")
+        if features.tasa_entrega < 0.7:
+            recomendaciones.append("Desarrollar hábitos de entrega puntual")
+        if features.area_dominante < 50:
+            recomendaciones.append("Explorar diferentes áreas de interés")
+
+        processing_time = (time.time() - start_time) * 1000  # Convertir a ms
+
+        return VocationalClusteringResponse(
+            student_id=features.student_id,
+            cluster_id=int(cluster_label),
+            cluster_nombre=cluster_profile["nombre"],
+            cluster_descripcion=cluster_profile["descripcion"],
+            probabilidad=float(probabilidad),
+            perfil=cluster_profile,
+            recomendaciones=recomendaciones,
+            modelo_version="1.0.0",
+            tiempo_procesamiento_ms=round(processing_time, 2),
+            timestamp=datetime.now().isoformat()
+        )
+
+    except Exception as e:
+        logger.error(f"Error en cluster_vocational: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
