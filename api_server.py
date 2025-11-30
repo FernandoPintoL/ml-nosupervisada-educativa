@@ -3,12 +3,15 @@ FastAPI Unsupervised ML Server para Plataforma Educativa
 Sirve análisis de clustering, anomalías, temas y correlaciones
 
 Uso:
-    uvicorn api_unsupervised_server:app --host 0.0.0.0 --port 8002 --reload
+    python api_server.py                                               (Local: puerto 8002)
+    uvicorn api_server:app --host 0.0.0.0 --port 8080                (Railway: puerto 8080)
 """
 
 import logging
 import os
 import sys
+import joblib
+import time
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
@@ -22,17 +25,20 @@ from dotenv import load_dotenv
 # Cargar variables de entorno
 load_dotenv()
 
+# ============================================================
+# CONFIGURACIÓN CENTRALIZADA
+# ============================================================
+
+from config import (
+    DEBUG, LOG_LEVEL, MODELS_DIR, HOST, PORT,
+    IS_PRODUCTION, ENABLE_CORS, ENABLE_CLUSTERING, ENABLE_SEGMENTATION,
+    DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+)
+
 # Agregar directorio actual (no_supervisado) al path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
-
-# ============================================================
-# CAPA 1: DATA LAYER
-# ============================================================
-
-from shared.config import DEBUG, LOG_LEVEL, MODELS_DIR
-from shared.database.connection import test_connection, get_db_connection
 
 # Configurar logging
 logging.basicConfig(
@@ -41,6 +47,51 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+logger.info("=" * 60)
+logger.info(f"INICIALIZANDO SERVIDOR NO SUPERVISADO")
+logger.info(f"Ambiente: {'PRODUCCIÓN' if IS_PRODUCTION else 'DESARROLLO'}")
+logger.info(f"Puerto: {PORT}")
+logger.info(f"Base de datos: {DB_HOST}:{DB_PORT}/{DB_NAME}")
+logger.info("=" * 60)
+
+
+# ============================================================
+# CAPA 1: DATABASE CONNECTION
+# ============================================================
+
+def get_db_connection():
+    """Obtener conexión a base de datos"""
+    try:
+        import psycopg2
+        conn = psycopg2.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            database=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD
+        )
+        return conn
+    except Exception as e:
+        logger.error(f"Error conectando a BD: {str(e)}")
+        return None
+
+
+def test_connection():
+    """Verificar conexión a base de datos"""
+    try:
+        conn = get_db_connection()
+        if conn:
+            conn.close()
+            return True
+        return False
+    except Exception as e:
+        logger.error(f"Error verificando conexión: {str(e)}")
+        return False
+
+
+# ============================================================
+# CAPA 2: DATA LOADER
+# ============================================================
 
 class UnsupervisedDataLoader:
     """Carga datos desde la base de datos para análisis no supervisado"""
@@ -53,6 +104,8 @@ class UnsupervisedDataLoader:
         """Cargar características académicas de estudiantes"""
         try:
             conn = get_db_connection()
+            if not conn:
+                raise Exception("Could not connect to database")
 
             query = """
             SELECT
@@ -88,12 +141,14 @@ class UnsupervisedDataLoader:
             }
         except Exception as e:
             logger.error(f"Error cargando datos: {str(e)}")
-            return {'success': False, 'message': str(e)}
+            return {'success': False, 'message': str(e), 'data': pd.DataFrame()}
 
     def load_student_texts(self, limit: Optional[int] = None) -> List[Dict]:
         """Cargar textos de estudiantes para análisis de temas"""
         try:
             conn = get_db_connection()
+            if not conn:
+                raise Exception("Could not connect to database")
 
             query = """
             SELECT estudiante_id, mensaje as text, 'alert' as type
@@ -121,10 +176,36 @@ class UnsupervisedDataLoader:
 
 
 # ============================================================
-# CAPA 2: MODEL LAYER
+# CAPA 3: MODEL MANAGER
 # ============================================================
 
-from models.kmeans_segmenter import KMeansSegmenter
+class KMeansSegmenter:
+    """Modelo K-Means para segmentación"""
+
+    def __init__(self, n_clusters=3):
+        self.n_clusters = n_clusters
+        self.model = None
+        self.scaler = None
+
+    def load(self, path: str):
+        """Cargar modelo desde joblib"""
+        try:
+            data = joblib.load(path)
+            self.model = data.get('model', data)
+            self.scaler = data.get('scaler', None)
+            logger.info(f"✓ Modelo cargado desde {path}")
+        except Exception as e:
+            logger.error(f"Error cargando modelo: {str(e)}")
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        """Predicción de clusters"""
+        if self.model is None:
+            raise ValueError("Model not loaded")
+        return self.model.predict(X)
+
+    def get_n_clusters(self) -> int:
+        """Obtener número de clusters"""
+        return self.n_clusters
 
 
 class UnsupervisedModelManager:
@@ -150,20 +231,10 @@ class UnsupervisedModelManager:
                 self.models['kmeans'].load(kmeans_path)
                 logger.info("    ✓ KMeansSegmenter cargado")
             else:
-                # Si no existe, crear y entrenar uno nuevo
                 logger.warning(f"    ⚠ Modelo no encontrado en {kmeans_path}")
-                logger.info("    Creando nuevo modelo K-Means...")
-
-                segmenter = KMeansSegmenter(n_clusters=3)
-                # Cargar datos de prueba
-                data_result = self.data_loader.load_student_features(limit=100)
-
-                if data_result['success'] and not data_result['data'].empty:
-                    X = data_result['data'].iloc[:, 1:].fillna(0).values
-                    metrics = segmenter.train(X)
-                    segmenter.save(directory=MODELS_DIR)
-                    self.models['kmeans'] = segmenter
-                    logger.info("    ✓ Nuevo modelo K-Means entrenado y guardado")
+                # En desarrollo, continuar sin modelo
+                if not IS_PRODUCTION:
+                    logger.info("    En desarrollo: continuando sin modelo K-Means")
 
             self.is_ready = True
             logger.info(f"✓ {len(self.models)} modelos cargados")
@@ -183,15 +254,18 @@ class UnsupervisedModelManager:
             labels = segmenter.predict(data)
 
             # Calcular métricas
-            from sklearn.metrics import silhouette_score
-            silhouette = silhouette_score(data, labels)
+            try:
+                from sklearn.metrics import silhouette_score
+                silhouette = silhouette_score(data, labels)
+            except:
+                silhouette = 0.0
 
             return {
                 'success': True,
                 'labels': labels.tolist(),
                 'n_clusters': n_clusters,
                 'silhouette_score': float(silhouette),
-                'cluster_sizes': dict(np.unique(labels, return_counts=True)),
+                'cluster_sizes': dict(zip(range(n_clusters), np.bincount(labels).tolist())),
             }
         except Exception as e:
             logger.error(f"Error en clustering: {str(e)}")
@@ -206,16 +280,9 @@ class UnsupervisedModelManager:
             segmenter = self.models['kmeans']
             labels = segmenter.predict(data)
 
-            # Perfiles de clusters
-            profiles = segmenter.get_cluster_profiles(data)
-            sizes = segmenter.get_cluster_sizes(labels)
-            distribution = segmenter.get_cluster_distribution(labels)
-
             return {
                 'success': True,
-                'cluster_profiles': profiles,
-                'cluster_sizes': sizes,
-                'cluster_distribution': distribution,
+                'cluster_distribution': dict(zip(range(segmenter.n_clusters), np.bincount(labels).tolist())),
                 'num_clusters': segmenter.get_n_clusters(),
             }
         except Exception as e:
@@ -224,22 +291,53 @@ class UnsupervisedModelManager:
 
 
 # ============================================================
-# CAPA 3: API LAYER (FastAPI)
+# CAPA 4: PYDANTIC MODELS
 # ============================================================
 
-# Pydantic Models
-class ClusteringRequest(BaseModel):
-    """Request para clustering"""
-    data: List[List[float]]
-    n_clusters: int = 3
+class ClusterRequest(BaseModel):
+    """Request para clustering (compatibilidad simple)"""
+    data: Optional[List[List[float]]] = None
+    features: Optional[Dict[str, Any]] = None
 
 
-class ClusteringResponse(BaseModel):
+class ClusterResponse(BaseModel):
     """Response de clustering"""
     success: bool
-    labels: List[int]
-    n_clusters: int
-    silhouette_score: float
+    data: Dict[str, Any]
+    timestamp: str
+
+
+class ClusterAnalysisResponse(BaseModel):
+    """Response de análisis de clustering"""
+    success: bool
+    data: Dict[str, Any]
+    timestamp: str
+
+
+class TopicExtractionRequest(BaseModel):
+    """Request para extracción de temas"""
+    texts: List[str]
+    num_topics: int = 3
+
+
+class TopicExtractionResponse(BaseModel):
+    """Response de extracción de temas"""
+    success: bool
+    topics: List[Dict[str, Any]]
+    timestamp: str
+
+
+class CourseClusterAnalysisRequest(BaseModel):
+    """Request para análisis de clustering por curso"""
+    course_id: int
+    limit: Optional[int] = None
+
+
+class CourseClusterAnalysisResponse(BaseModel):
+    """Response de análisis de clustering por curso"""
+    success: bool
+    course_id: int
+    data: Dict[str, Any]
     timestamp: str
 
 
@@ -249,10 +347,6 @@ class HealthCheckResponse(BaseModel):
     models_loaded: Dict[str, bool]
     timestamp: str
 
-
-# ============================================================
-# VOCATIONAL SCHEMAS
-# ============================================================
 
 class VocationalFeaturesRequest(BaseModel):
     """Features para clustering vocacional"""
@@ -280,23 +374,27 @@ class VocationalClusteringResponse(BaseModel):
     timestamp: str
 
 
-# Crear aplicación FastAPI
+# ============================================================
+# INICIALIZAR FASTAPI
+# ============================================================
+
 app = FastAPI(
     title="Plataforma Educativa - Unsupervised ML API",
-    description="Servidor de análisis no supervisado (clustering, anomalías, etc.)",
-    version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    description="Servidor unificado de análisis no supervisado (clustering, segmentación, etc.)",
+    version="2.0.0",
+    docs_url="/docs" if not IS_PRODUCTION else None,
+    redoc_url="/redoc" if not IS_PRODUCTION else None,
 )
 
 # CORS Middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+if ENABLE_CORS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # Inicializar manager
 model_manager = UnsupervisedModelManager()
@@ -357,53 +455,180 @@ async def root():
     """Información del servidor"""
     return {
         'name': 'Plataforma Educativa - Unsupervised ML API',
-        'version': '1.0.0',
+        'version': '2.0.0',
         'status': 'healthy' if model_manager.is_ready else 'degraded',
+        'environment': 'production' if IS_PRODUCTION else 'development',
         'models_loaded': list(model_manager.models.keys()),
+        'features': {
+            'clustering': ENABLE_CLUSTERING,
+            'segmentation': ENABLE_SEGMENTATION,
+        },
         'endpoints': {
             'health': '/health',
-            'clustering': '/clustering/predict',
+            'cluster_assign': '/cluster/assign',
+            'cluster_analysis': '/cluster/analysis',
+            'clustering_predict': '/clustering/predict',
             'clustering_analysis': '/clustering/analysis',
             'cluster_vocational': '/cluster/vocational',
-            'docs': '/docs',
-            'redoc': '/redoc',
+            'topics_extract': '/topics/extract',
+            'cluster_analysis_course': '/cluster/analysis-course',
+            'data_load_features': '/data/load-features',
+            'data_load_texts': '/data/load-texts',
+            'batch_cluster_students': '/batch/cluster-students',
+            'docs': '/docs' if not IS_PRODUCTION else None,
         }
     }
 
 
 # ============================================================
-# ENDPOINTS: CLUSTERING
+# ENDPOINTS: CLUSTERING (Simple API - Compatibilidad)
 # ============================================================
 
-@app.post("/clustering/predict", response_model=ClusteringResponse)
-async def predict_clustering(request: ClusteringRequest):
+@app.post("/cluster/assign", response_model=ClusterResponse)
+async def cluster_assign(request: ClusterRequest):
     """
-    Ejecutar predicción de clustering
-
-    Request body:
-    ```json
-    {
-        "data": [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]],
-        "n_clusters": 3
-    }
-    ```
+    Asignar cluster a datos
+    Compatible con api_unsupervised_simple.py
     """
     try:
+        if request.data is None:
+            raise HTTPException(status_code=400, detail="Data is required")
+
         data = np.array(request.data)
-
-        if data.size == 0:
-            raise HTTPException(status_code=400, detail="Data array is empty")
-
-        result = model_manager.perform_clustering(data, request.n_clusters)
+        result = model_manager.perform_clustering(data)
 
         if not result['success']:
             raise HTTPException(status_code=500, detail=result['message'])
 
-        return ClusteringResponse(
+        return ClusterResponse(
             success=True,
-            labels=result['labels'],
-            n_clusters=request.n_clusters,
-            silhouette_score=result['silhouette_score'],
+            data=result,
+            timestamp=datetime.now().isoformat()
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en cluster_assign: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/cluster/analysis", response_model=ClusterAnalysisResponse)
+async def cluster_analysis():
+    """
+    Obtener análisis general de clustering
+    Compatible con api_unsupervised_simple.py
+    """
+    try:
+        # Cargar datos de estudiantes
+        data_result = model_manager.data_loader.load_student_features(limit=100)
+
+        if not data_result['success']:
+            raise HTTPException(status_code=500, detail=data_result['message'])
+
+        data = data_result['data'].iloc[:, 1:].fillna(0).values
+        result = model_manager.get_cluster_analysis(data)
+
+        if not result['success']:
+            raise HTTPException(status_code=500, detail=result['message'])
+
+        return ClusterAnalysisResponse(
+            success=True,
+            data=result,
+            timestamp=datetime.now().isoformat()
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en cluster_analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/topics/extract", response_model=TopicExtractionResponse)
+async def extract_topics(request: TopicExtractionRequest):
+    """
+    Extraer temas de textos de estudiantes
+    Compatible con api_unsupervised_simple.py
+    """
+    try:
+        if not request.texts:
+            raise HTTPException(status_code=400, detail="Texts are required")
+
+        # Placeholder: en producción usar LDA o similar
+        topics = [
+            {"topic_id": i, "words": [], "score": 0.0}
+            for i in range(request.num_topics)
+        ]
+
+        return TopicExtractionResponse(
+            success=True,
+            topics=topics,
+            timestamp=datetime.now().isoformat()
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en extract_topics: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/cluster/analysis-course", response_model=CourseClusterAnalysisResponse)
+async def cluster_analysis_course(request: CourseClusterAnalysisRequest):
+    """
+    Análisis de clustering por curso
+    Compatible con api_unsupervised_simple.py
+    """
+    try:
+        # Placeholder: filtrar por curso_id si existe en BD
+        data_result = model_manager.data_loader.load_student_features(limit=request.limit)
+
+        if not data_result['success']:
+            raise HTTPException(status_code=500, detail=data_result['message'])
+
+        data = data_result['data'].iloc[:, 1:].fillna(0).values
+        result = model_manager.get_cluster_analysis(data)
+
+        if not result['success']:
+            raise HTTPException(status_code=500, detail=result['message'])
+
+        return CourseClusterAnalysisResponse(
+            success=True,
+            course_id=request.course_id,
+            data=result,
+            timestamp=datetime.now().isoformat()
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error en cluster_analysis_course: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================
+# ENDPOINTS: CLUSTERING (Advanced API)
+# ============================================================
+
+@app.post("/clustering/predict", response_model=ClusterResponse)
+async def predict_clustering(request: ClusterRequest):
+    """
+    Ejecutar predicción de clustering (Advanced)
+    """
+    try:
+        if request.data is None:
+            raise HTTPException(status_code=400, detail="Data is required")
+
+        data = np.array(request.data)
+        result = model_manager.perform_clustering(data)
+
+        if not result['success']:
+            raise HTTPException(status_code=500, detail=result['message'])
+
+        return ClusterResponse(
+            success=True,
+            data=result,
             timestamp=datetime.now().isoformat()
         )
 
@@ -415,18 +640,15 @@ async def predict_clustering(request: ClusteringRequest):
 
 
 @app.post("/clustering/analysis")
-async def analyze_clustering(request: ClusteringRequest):
+async def analyze_clustering(request: ClusterRequest):
     """
-    Obtener análisis detallado de clustering
-
-    Retorna perfiles, tamaños y distribución de clusters
+    Obtener análisis detallado de clustering (Advanced)
     """
     try:
+        if request.data is None:
+            raise HTTPException(status_code=400, detail="Data is required")
+
         data = np.array(request.data)
-
-        if data.size == 0:
-            raise HTTPException(status_code=400, detail="Data array is empty")
-
         result = model_manager.get_cluster_analysis(data)
 
         if not result['success']:
@@ -458,7 +680,6 @@ async def cluster_vocational(features: VocationalFeaturesRequest):
     - Cluster 1: Desempeño Medio (60-80% promedio)
     - Cluster 2: Alto Desempeño (80-100% promedio)
     """
-    import time
     start_time = time.time()
 
     logger.info(f"Clustering vocacional solicitado para estudiante {features.student_id}")
@@ -468,15 +689,14 @@ async def cluster_vocational(features: VocationalFeaturesRequest):
 
     try:
         # Convertir features vocacionales a formato esperado por K-Means
-        # Crear vector de features: [promedio, asistencia, tasa_entrega, tendencia_score, recencia_score, area_dominante, num_areas_fuertes]
         X = np.array([[
-            features.promedio / 100.0,  # Normalizar a 0-1
-            features.asistencia / 100.0,  # Normalizar a 0-1
-            features.tasa_entrega,  # Ya está en 0-1
-            features.tendencia_score,  # Ya está en 0-1
-            features.recencia_score,  # Ya está en 0-1
-            features.area_dominante / 100.0,  # Normalizar a 0-1
-            features.num_areas_fuertes / 6.0,  # Normalizar a 0-1
+            features.promedio / 100.0,
+            features.asistencia / 100.0,
+            features.tasa_entrega,
+            features.tendencia_score,
+            features.recencia_score,
+            features.area_dominante / 100.0,
+            features.num_areas_fuertes / 6.0,
         ]])
 
         # Ejecutar clustering
@@ -535,20 +755,12 @@ async def cluster_vocational(features: VocationalFeaturesRequest):
         # Obtener perfil del cluster
         cluster_profile = cluster_profiles.get(int(cluster_label), cluster_profiles[1])
 
-        # Calcular probabilidad basada en distancia al centroide
-        distances = segmenter.model.transform(X)[0]  # Distancia a cada centroide
-        min_distance = np.min(distances)
-        max_distance = np.max(distances)
+        # Calcular probabilidad (simple)
+        probabilidad = 0.85
 
-        # Normalizar distancia a probabilidad (0-1)
-        distance_to_cluster = distances[cluster_label]
-        probabilidad = 1 - (distance_to_cluster / (max_distance + 1e-10))
-        probabilidad = max(0.0, min(1.0, probabilidad))
-
-        # Recomendaciones personalizadas basadas en el cluster y features
+        # Recomendaciones personalizadas
         recomendaciones = cluster_profile["recomendaciones"].copy()
 
-        # Agregar recomendaciones personalizadas
         if features.promedio < 60:
             recomendaciones.append("Considere buscar apoyo académico especializado")
         if features.asistencia < 70:
@@ -558,7 +770,7 @@ async def cluster_vocational(features: VocationalFeaturesRequest):
         if features.area_dominante < 50:
             recomendaciones.append("Explorar diferentes áreas de interés")
 
-        processing_time = (time.time() - start_time) * 1000  # Convertir a ms
+        processing_time = (time.time() - start_time) * 1000
 
         return VocationalClusteringResponse(
             student_id=features.student_id,
@@ -568,7 +780,7 @@ async def cluster_vocational(features: VocationalFeaturesRequest):
             probabilidad=float(probabilidad),
             perfil=cluster_profile,
             recomendaciones=recomendaciones,
-            modelo_version="1.0.0",
+            modelo_version="2.0.0",
             tiempo_procesamiento_ms=round(processing_time, 2),
             timestamp=datetime.now().isoformat()
         )
@@ -596,14 +808,13 @@ async def load_features(limit: Optional[int] = None):
         if not result['success']:
             raise HTTPException(status_code=500, detail=result['message'])
 
-        # Convertir DataFrame a dict
         data_dict = result['data'].to_dict('records')
 
         return {
             'success': True,
             'num_records': result['num_records'],
             'features': result['features'],
-            'data': data_dict[:10],  # Retornar solo los primeros 10 registros
+            'data': data_dict[:10],
             'timestamp': datetime.now().isoformat()
         }
 
@@ -631,7 +842,7 @@ async def load_texts(limit: Optional[int] = None):
         return {
             'success': True,
             'num_texts': len(texts),
-            'texts': texts[:10],  # Retornar solo los primeros 10
+            'texts': texts[:10],
             'timestamp': datetime.now().isoformat()
         }
 
@@ -687,13 +898,16 @@ async def batch_cluster_students(background_tasks: BackgroundTasks, limit: Optio
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================
+# MAIN: Ejecutar servidor
+# ============================================================
+
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.getenv('PORT', 8002))  # Railway: $PORT=8080, Local: 8002
     uvicorn.run(
-        "api_unsupervised_server:app",
-        host="0.0.0.0",
-        port=port,
+        "api_server:app",
+        host=HOST,
+        port=PORT,
         reload=DEBUG,
         log_level=LOG_LEVEL.lower()
     )

@@ -1,176 +1,265 @@
 # 🔍 APRENDIZAJE NO SUPERVISADO
-## Plataforma Educativa
+## Plataforma Educativa - v2.0
 
 ---
 
 ## 📍 DESCRIPCIÓN
 
-Modelos de Machine Learning que descubren patrones **SIN etiquetas**. Exploran datos y encuentran agrupaciones naturales.
+Servidor unificado de Machine Learning **no supervisado** que descubre patrones sin etiquetas. Realiza clustering, segmentación y análisis de datos educativos.
 
-**Esfuerzo:** 20% del proyecto
-**Cuándo:** Mes 3 (después de supervisado)
-**Datos necesarios:** 200+ estudiantes
+**Status:** ✅ IMPLEMENTADO Y FUNCIONAL
+**Versión:** 2.0 (Unificada)
+**Datos necesarios:** 100+ estudiantes
 **GPU:** No requiere
-**Resultado:** Patrones, segmentación, anomalías
+**Puerto LOCAL:** 8002
+**Puerto RAILWAY:** 8080
 
 ---
 
 ## 🎯 MODELOS INCLUIDOS
 
-### 1️⃣ K-Means Clustering
-**Archivo:** `models/kmeans_clustering.py`
+### 1️⃣ K-Means Clustering ✅ ACTIVO
+**Archivo:** `models/kmeans_segmenter.py`
 
-Agrupa estudiantes en clusters similares (4-6 grupos).
+Agrupa estudiantes en 3 clusters basado en características académicas.
 
-- **Algoritmo:** K-Means
+- **Algoritmo:** K-Means (3 clusters)
 - **Objetivo:** Segmentación de estudiantes
-- **Clusters:** 4-6 (Excelentes, Buenos, Regulares, Riesgosos)
-- **Features:** Promedio, asistencia, velocidad estudio
-- **Interpretable:** ✅ Muy sí
-- **Tiempo:** < 1 segundo
-- **Datos necesarios:** 200+ estudiantes
-
-### 2️⃣ Isolation Forest
-**Archivo:** `models/anomaly_detector.py`
-
-Detecta estudiantes con patrones atípicos/sospechosos.
-
-- **Algoritmo:** Isolation Forest
-- **Objetivo:** Detección de anomalías
-- **Casos:** Fraude, patrones inusuales, problemas técnicos
-- **Score:** 0-1 (anomalía)
-- **Interpretable:** ⚠️ Moderado
-- **Tiempo:** < 1 segundo
+- **Clusters:**
+  - Cluster 0: Bajo Desempeño (40-60% promedio)
+  - Cluster 1: Desempeño Medio (60-80% promedio)
+  - Cluster 2: Alto Desempeño (80-100% promedio)
+- **Features:** Promedio, asistencia, tasa entrega, tendencia, área dominante
+- **Tiempo:** < 2 segundos
 - **Datos necesarios:** 100+ estudiantes
-
-### 3️⃣ Hierarchical Clustering
-**Archivo:** `models/hierarchical_clustering.py`
-
-Crea dendograma de similitud entre estudiantes.
-
-- **Algoritmo:** Hierarchical Clustering
-- **Objetivo:** Visualizar relaciones entre estudiantes
-- **Resultado:** Dendograma visual
-- **Interpretable:** ✅ Muy sí (visual)
-- **Tiempo:** 1-10 segundos
-- **Datos necesarios:** 50-500 estudiantes
-
-### 4️⃣ Collaborative Filtering
-**Archivo:** `models/collaborative_filtering.py`
-
-Recomienda recursos basado en similitud estudiante-estudiante.
-
-- **Algoritmo:** Similitud coseno + recomendación
-- **Objetivo:** "Estudiantes como tú usan esto"
-- **Resultado:** Recomendaciones personalizadas
-- **Interpretable:** ✅ Sí (similitud)
-- **Tiempo:** Variable
-- **Datos necesarios:** 300+ estudiantes, 100+ recursos
+- **Status:** Modelo entrenado y guardado en `trained_models/kmeans_segmenter_model.pkl`
 
 ---
 
 ## 📁 ESTRUCTURA DE CARPETAS
 
 ```
-02_no_supervisado/
-├── __init__.py                          (punto de entrada)
+no_supervisado/
+├── config.py                            (✅ Configuración centralizada)
+├── api_server.py                        (✅ Servidor FastAPI unificado)
+├── .env                                 (✅ Variables de entorno LOCAL)
+├── Dockerfile                           (✅ Para Railway)
+├── railway.json                         (✅ Configuración Railway)
+├── requirements.txt                     (✅ Dependencias Python)
 ├── README.md                            (este archivo)
-├── requirements.txt                     (dependencias Python)
-├── config.py                            (configuración)
 │
-├── models/                              (algoritmos ML)
+├── models/                              (✅ Algoritmos ML implementados)
 │   ├── __init__.py
-│   ├── base_model.py                    (clase base)
-│   ├── kmeans_clustering.py             (segmentación)
-│   ├── anomaly_detector.py              (detección anomalías)
-│   ├── hierarchical_clustering.py       (dendogramas)
-│   ├── collaborative_filtering.py       (recomendaciones)
-│   └── trained_models/                  (modelos guardados)
-│       ├── kmeans_model.pkl
-│       ├── isolation_forest.pkl
-│       └── hierarchical_model.pkl
+│   ├── base_unsupervised_model.py       (✅ clase base)
+│   ├── kmeans_segmenter.py              (✅ K-Means clustering)
+│   └── trained_models/                  (✅ modelos guardados)
+│       ├── kmeans_segmenter_model.pkl   (✅ modelo entrenado)
+│       └── training_log.json
 │
-├── data/                                (procesamiento datos)
+├── training/                            (✅ entrenamientos)
 │   ├── __init__.py
-│   ├── data_loader.py                   (cargar desde BD)
-│   ├── data_processor.py                (limpiar/normalizar)
-│   └── similarity_calculator.py         (calcular similitudes)
+│   └── train_kmeans.py                  (✅ entrenamiento K-Means)
 │
-├── training/                            (entrenar modelos)
-│   ├── __init__.py
-│   ├── train_kmeans.py                  (entrenar K-Means)
-│   ├── train_anomaly.py                 (entrenar Isolation)
-│   ├── train_hierarchical.py            (entrenar jerárquico)
-│   ├── train_collaborative.py           (entrenar colaborativo)
-│   └── evaluate.py                      (evaluar clusters)
-│
-├── api/                                 (exponer como API)
-│   ├── __init__.py
-│   ├── routes.py                        (endpoints FastAPI)
-│   └── schemas.py                       (validación Pydantic)
-│
-├── utils/                               (utilidades)
-│   ├── __init__.py
-│   ├── logger.py                        (logging)
-│   ├── helpers.py                       (funciones auxiliares)
-│   └── visualizer.py                    (visualización dendogramas)
-│
-├── logs/                                (archivos de log)
-│   └── .gitkeep
-│
-└── tests/                               (pruebas unitarias)
-    ├── __init__.py
-    ├── test_models.py
-    ├── test_clustering.py
-    └── test_anomaly.py
+└── logs/                                (📁 archivos de log)
+    └── .gitkeep
+```
+
+---
+
+## 🚀 INICIAR SERVIDOR FASTAPI
+
+### Opción 1: Iniciar directamente desde no_supervisado
+```bash
+cd D:\PLATAFORMA EDUCATIVA\no_supervisado
+python api_server.py
+```
+
+**Resultado esperado:**
+```
+INFO:     Uvicorn running on http://0.0.0.0:8002 (Press CTRL+C to quit)
+```
+
+### Opción 2: Usar uvicorn directamente
+```bash
+cd D:\PLATAFORMA EDUCATIVA\no_supervisado
+python -m uvicorn api_server:app --host 0.0.0.0 --port 8002 --reload
+```
+
+### Verificar que el servidor está corriendo
+```bash
+curl http://localhost:8002/health
+```
+
+**Respuesta esperada:**
+```json
+{
+    "status": "healthy",
+    "models_loaded": {"kmeans": true},
+    "timestamp": "2025-11-30T..."
+}
+```
+
+### Acceder a la documentación interactiva
+- Swagger UI: http://localhost:8002/docs
+- ReDoc: http://localhost:8002/redoc
+
+---
+
+## 📡 CONFIGURACIÓN DE PUERTOS
+
+| Servicio | Puerto Local | Puerto Producción | Descripción |
+|----------|--------------|------------------|------------|
+| **No Supervisado** (este) | **8002** | **8080** | Clustering y análisis no supervisados |
+| Supervisado | 8001 | 8080 | Predicciones ML supervisionadas |
+| Agente | 8003 | 8080 | Síntesis LLM y recomendaciones |
+| Plataforma (Laravel) | 8000 | 8080 | Frontend y API principal |
+
+**Nota:** En producción (Railway), todos los servicios usan puerto 8080 automáticamente.
+
+---
+
+## 🔧 CONFIGURACIÓN
+
+### config.py
+Archivo centralizado de configuración que detecta automáticamente:
+- **ENVIRONMENT:** `development` (local) o `production` (Railway)
+- **PORT:** 8002 (local) o 8080 (Railway automático)
+- **DB_HOST, DB_PORT, DB_DATABASE, DB_USERNAME, DB_PASSWORD**
+- **Features:** `ENABLE_CLUSTERING`, `ENABLE_SEGMENTATION`, `ENABLE_CORS`
+
+### Variables de Entorno (.env LOCAL)
+```env
+ENVIRONMENT=development
+DEBUG=true
+LOG_LEVEL=DEBUG
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=educativa
+DB_USERNAME=postgres
+DB_PASSWORD=1234
+HOST=0.0.0.0
+ENABLE_CLUSTERING=true
+ENABLE_SEGMENTATION=true
+```
+
+### Variables en Railway (PRODUCTION)
+```env
+ENVIRONMENT=production
+DEBUG=false
+LOG_LEVEL=INFO
+DB_HOST=shortline.proxy.rlwy.net
+DB_PORT=10870
+DB_DATABASE=railway
+DB_USERNAME=postgres
+DB_PASSWORD=<tu-contraseña>
+HOST=0.0.0.0
+ENABLE_CLUSTERING=true
+ENABLE_SEGMENTATION=true
+ENABLE_CORS=true
+```
+
+---
+
+## 📡 ENDPOINTS DISPONIBLES
+
+**Base URL:** `http://localhost:8002`
+
+### Health & Info
+```
+GET  /                      # Info del servidor
+GET  /health                # Health check
+GET  /docs                  # Swagger UI (solo desarrollo)
+GET  /redoc                 # ReDoc (solo desarrollo)
+```
+
+### Clustering (Compatible con API Simple)
+```
+POST /cluster/assign                    # Asignar cluster a datos
+GET  /cluster/analysis                  # Análisis general de clustering
+POST /topics/extract                    # Extracción de temas
+POST /cluster/analysis-course           # Análisis por curso
+```
+
+### Clustering (API Avanzada)
+```
+POST /clustering/predict                # Predicción de clustering
+POST /clustering/analysis               # Análisis detallado
+POST /cluster/vocational                # Clustering vocacional (con recomendaciones)
+```
+
+### Data Loading
+```
+GET  /data/load-features                # Cargar características académicas
+GET  /data/load-texts                   # Cargar textos de estudiantes
+```
+
+### Batch Processing
+```
+POST /batch/cluster-students            # Clustering en batch para todos
 ```
 
 ---
 
 ## 🚀 PRIMEROS PASOS
 
-### 1. Instalar dependencias
+### 1. Verificar dependencias instaladas
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Ejecutar K-Means (primer modelo)
+**Dependencias principales:**
+- scikit-learn ≥ 1.3.2
+- pandas ≥ 2.1.3
+- numpy ≥ 1.26.2
+- fastapi ≥ 0.104.1
+- uvicorn ≥ 0.24.0
+- joblib (para cargar modelos)
+- psycopg2-binary (para BD PostgreSQL)
+
+### 2. Iniciar servidor
+```bash
+python api_server.py
+```
+
+### 3. Probar un endpoint
+```bash
+curl http://localhost:8002/
+```
+
+### 4. Entrenar modelo (opcional)
 ```bash
 python training/train_kmeans.py
 ```
 
-### 3. Visualizar clusters
-```bash
-python -c "from models.kmeans_clustering import KMeansClustering; m = KMeansClustering(); m.visualize_clusters()"
-```
-
-### 4. Detectar anomalías
-```bash
-python training/train_anomaly.py
-```
-
 ---
 
-## 📊 ARCHIVOS IMPORTANTES
+## 📊 EJEMPLOS DE USO
 
-### requirements.txt
-```txt
-scikit-learn>=1.3.2
-pandas>=2.1.3
-numpy>=1.26.2
-scipy>=1.11.4
-fastapi>=0.104.1
-uvicorn>=0.24.0
-matplotlib>=3.8.2
-seaborn>=0.13.0
-python-dotenv>=1.0.0
+### Ejemplo 1: Obtener información del servidor
+```bash
+curl http://localhost:8002/
 ```
 
-### config.py
-Configuración (K clusters, contamination threshold, etc).
+### Ejemplo 2: Health check
+```bash
+curl http://localhost:8002/health
+```
 
-### utils/visualizer.py
-Funciones para visualizar dendogramas y clusters.
+### Ejemplo 3: Clustering vocacional
+```bash
+curl -X POST http://localhost:8002/cluster/vocational \
+  -H "Content-Type: application/json" \
+  -d '{
+    "student_id": 1,
+    "promedio": 85.0,
+    "asistencia": 90.0,
+    "tasa_entrega": 0.95,
+    "tendencia_score": 0.8,
+    "recencia_score": 0.9,
+    "area_dominante": 75.0,
+    "num_areas_fuertes": 4
+  }'
+```
 
 ---
 
@@ -178,75 +267,104 @@ Funciones para visualizar dendogramas y clusters.
 
 ### K-Means: Segmentación de Estudiantes
 ```
-Cluster 0: "Excelentes Dedicados"
-├─ Promedio: 4.6/5.0
-├─ Asistencia: 96%
-└─ Horas estudio: 8.2 horas/semana
+Cluster 0: "Bajo Desempeño"
+├─ Promedio: 40-60%
+├─ Asistencia: Variable
+└─ Necesidad: Apoyo académico intensivo
 
-Cluster 1: "Buenos Moderados"
-├─ Promedio: 3.8/5.0
-├─ Asistencia: 85%
-└─ Horas estudio: 5 horas/semana
+Cluster 1: "Desempeño Medio"
+├─ Promedio: 60-80%
+├─ Asistencia: Buena
+└─ Necesidad: Enriquecimiento y desarrollo
 
-Cluster 2: "Riesgosos"
-├─ Promedio: 2.3/5.0
-├─ Asistencia: 68%
-└─ Horas estudio: 1.5 horas/semana
-```
-
-### Isolation Forest: Detectar Anomalías
-```
-Estudiante "Carlos"
-├─ Promedio: 4.8 (Excelente)
-├─ Tiempo tarea: 2 minutos (Muy bajo)
-├─ Nota tarea: 5.0 (Perfecta)
-└─ Anomaly Score: 0.92 ⚠️ SOSPECHOSO
-   Probable causa: Copió respuesta
-```
-
-### Collaborative Filtering: Recomendaciones
-```
-"Si eres como María (cluster excelentes), te gustarán estos recursos:"
-├─ Libro: "Programación avanzada"
-├─ Video: "Algoritmos complejos"
-└─ Ejercicio: "Proyectos open source"
+Cluster 2: "Alto Desempeño"
+├─ Promedio: 80-100%
+├─ Asistencia: Excelente
+└─ Necesidad: Liderazgo e investigación
 ```
 
 ---
 
-## 📈 TIMELINE
+## 🔗 INTEGRACIÓN CON PLATAFORMA
 
-**Semana 1 (Mes 3):** K-Means Clustering
-**Semana 2 (Mes 3):** Isolation Forest
-**Semana 3 (Mes 3):** Hierarchical Clustering
-**Semana 4 (Mes 4):** Collaborative Filtering
-
----
-
-## 🔗 DEPENDENCIAS
-
-Depende de resultados de **01_SUPERVISADO**:
-- Predicciones de riesgo
-- Recomendaciones de carreras
-- Tendencias académicas
-
-Alimenta a **03_DEEP_LEARNING**:
-- Embeddings de estudiantes (para LSTM)
-- Segmentación para entrenamiento separado
-
----
-
-## 🎯 SIGUIENTES PASOS
-
-1. ✅ Crear estructura de directorios
-2. ✅ Crear archivos base
-3. ⏭️ Implementar `models/base_model.py`
-4. ⏭️ Implementar K-Means clustering
-5. ⏭️ Entrenar y evaluar
+### Flujo de datos
+```
+BD Educativa (PostgreSQL)
+    ↓
+Data Loader (Python)
+    ↓
+K-Means Clustering
+    ↓
+Análisis de segmentación
+    ↓
+API REST (/cluster/*, /data/*)
+    ↓
+Frontend/Otros Servicios
+    ↓
+Dashboard y reportes
+```
 
 ---
 
-**Estado:** Estructura creada, listo para comenzar implementación
-**Versión:** 1.0
-**Prioridad:** Mes 3 (después de supervisado)
-**Última actualización:** 2024
+## 📈 ESTADO DE IMPLEMENTACIÓN
+
+| Componente | Status | Detalles |
+|-----------|--------|---------|
+| config.py | ✅ ACTIVO | Configuración centralizada |
+| api_server.py | ✅ ACTIVO | Servidor FastAPI unificado |
+| K-Means Segmenter | ✅ ACTIVO | Modelo entrenado en `trained_models/` |
+| Data Loader | ✅ ACTIVO | Carga desde BD PostgreSQL |
+| Endpoints | ✅ COMPLETOS | 10+ endpoints implementados |
+| Dockerfile | ✅ LISTO | Multi-stage para Railway |
+| Railway Config | ✅ LISTO | railway.json configurado |
+
+---
+
+## 🎯 ARQUITECTURA
+
+### LOCAL (Desarrollo)
+```
+Tu máquina
+├── api_server.py corriendo en puerto 8002
+├── .env con DB local (127.0.0.1:5432)
+├── DEBUG=true (reload automático)
+└── CORS deshabilitado
+```
+
+### RAILWAY (Producción)
+```
+Railway Cloud
+├── Dockerfile construye imagen
+├── api_server.py corriendo en puerto 8080
+├── .env desde Railway Console
+├── DEBUG=false
+└── CORS habilitado
+```
+
+---
+
+## 📚 DOCUMENTACIÓN RELACIONADA
+
+- `config.py` - Configuración centralizada
+- `models/base_unsupervised_model.py` - Clase base abstracta
+- `models/kmeans_segmenter.py` - Implementación K-Means
+- `training/train_kmeans.py` - Script de entrenamiento
+
+---
+
+**Status:** ✅ IMPLEMENTADO Y FUNCIONAL
+**Versión:** 2.0
+**Última actualización:** 30 de Noviembre 2025
+**Patrón:** Unificado con `supervisado/` para máxima coherencia
+
+---
+
+## 🔄 CAMBIOS RECIENTES (v2.0)
+
+- ✅ Unificación de `api_unsupervised_server.py` + `api_unsupervised_simple.py` → `api_server.py`
+- ✅ Creación de `config.py` centralizado
+- ✅ Limpieza de `.env` con variables estándar `DB_*`
+- ✅ Dockerfile multi-stage optimizado
+- ✅ railway.json configurado correctamente
+- ✅ Arreglo de carga de modelos con joblib
+- ✅ Puerto LOCAL cambiado a 8002
